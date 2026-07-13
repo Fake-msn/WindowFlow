@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="WindowFlow - 智能桌面窗口管理工具。一键多屏幕窗口迁移、基于使用频率的智能推荐、本地工作流识别。">
+  <meta name="keywords" content="窗口管理,多屏幕,工作流,效率工具,窗口迁移,Windows">
+  <title>WindowFlow - 智能桌面窗口管理工具</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --dark: #141413;
+      --light: #faf9f5;
+      --mid-gray: #b0aea5;
+      --light-gray: #e8e6dc;
+      --orange: #d97757;
+      --blue: #6a9bcc;
+      --green: #788c5d;
+      --radius: 12px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Lora', Georgia, serif;
+      background: var(--light);
+      color: var(--dark);
+      line-height: 1.7;
+      font-size: 16px;
+    }
+    h1, h2, h3, h4 { font-family: 'Poppins', Arial, sans-serif; }
+    h2 { font-size: 2.2rem; margin-bottom: 1rem; }
+    h3 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+
+    /* Hero */
+    .hero {
+      background: var(--dark);
+      color: var(--light);
+      padding: 100px 24px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 30% 50%, rgba(106,155,204,0.15) 0%, transparent 60%),
+                  radial-gradient(ellipse at 70% 50%, rgba(217,119,87,0.12) 0%, transparent 60%);
+    }
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      position: relative;
+    }
+    .hero h1 span { color: var(--blue); }
+    .hero .tagline {
+      font-size: 1.25rem;
+      color: var(--mid-gray);
+      margin-top: 1rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      position: relative;
+    }
+    .hero .cta-group {
+      margin-top: 2.5rem;
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      position: relative;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-family: 'Poppins', Arial, sans-serif;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+    .btn-primary { background: var(--orange); color: var(--light); }
+    .btn-primary:hover { background: #c86a4a; transform: translateY(-1px); }
+    .btn-outline { background: transparent; color: var(--light); border: 2px solid var(--mid-gray); }
+    .btn-outline:hover { border-color: var(--light); }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* Section */
+    .section { padding: 80px 0; }
+    .section-alt { background: var(--dark); color: var(--light); }
+    .section-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    .section-header p {
+      color: var(--mid-gray);
+      max-width: 600px;
+      margin: 0.5rem auto 0;
+    }
+
+    /* Feature Grid */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 28px;
+    }
+    .feature-card {
+      background: #fff;
+      border: 1px solid var(--light-gray);
+      border-radius: var(--radius);
+      padding: 32px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .feature-card:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+    .feature-card .icon {
+      width: 48px; height: 48px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    .icon-blue { background: rgba(106,155,204,0.15); color: var(--blue); }
+    .icon-orange { background: rgba(217,119,87,0.15); color: var(--orange); }
+    .icon-green { background: rgba(120,140,93,0.15); color: var(--green); }
+
+    /* Usage Steps */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      counter-reset: step;
+    }
+    .step {
+      position: relative;
+      padding: 28px;
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      font-family: 'Poppins', Arial, sans-serif;
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--blue);
+      opacity: 0.3;
+    }
+    .step h3 { color: var(--light); }
+
+    /* Screenshot placeholders */
+    .screenshot {
+      background: rgba(255,255,255,0.03);
+      border: 2px dashed rgba(255,255,255,0.1);
+      border-radius: var(--radius);
+      padding: 48px 24px;
+      text-align: center;
+      margin-top: 1.5rem;
+      color: var(--mid-gray);
+      font-size: 0.9rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .screenshot .mock-ui {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      opacity: 0.6;
+    }
+    .mock-ui .mock-bar {
+      width: 60%;
+      height: 8px;
+      background: var(--blue);
+      border-radius: 4px;
+      opacity: 0.5;
+    }
+    .mock-ui .mock-card {
+      width: 80%;
+      height: 60px;
+      background: rgba(106,155,204,0.1);
+      border: 1px solid rgba(106,155,204,0.2);
+      border-radius: 8px;
+    }
+    .mock-ui .mock-btn {
+      width: 40%;
+      height: 32px;
+      background: var(--orange);
+      border-radius: 6px;
+      opacity: 0.7;
+    }
+
+    /* Download */
+    #download-section {
+      background: linear-gradient(135deg, var(--dark) 0%, #1a1a2e 100%);
+      color: var(--light);
+      padding: 80px 0;
+    }
+    .download-card {
+      max-width: 600px;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius);
+      padding: 40px;
+      text-align: center;
+    }
+    .download-info {
+      font-size: 0.9rem;
+      color: var(--mid-gray);
+      margin-top: 8px;
+    }
+    .proxy-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      padding: 6px 14px;
+      border-radius: 20px;
+      margin-top: 1rem;
+      font-family: 'Poppins', Arial, sans-serif;
+    }
+    .proxy-status.testing { background: rgba(106,155,204,0.15); color: var(--blue); }
+    .proxy-status.fast { background: rgba(120,140,93,0.15); color: var(--green); }
+    .proxy-status.slow { background: rgba(217,119,87,0.15); color: var(--orange); }
+
+    .version-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      background: rgba(106,155,204,0.2);
+      color: var(--blue);
+      font-family: 'Poppins', Arial, sans-serif;
+      margin-bottom: 1rem;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--dark);
+      color: var(--mid-gray);
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    footer a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+    footer a:hover { text-decoration: underline; }
+
+    /* Tech Stack */
+    .tech-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+    .tech-tag {
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-family: 'Poppins', Arial, sans-serif;
+      background: rgba(106,155,204,0.1);
+      color: var(--blue);
+      border: 1px solid rgba(106,155,204,0.2);
+    }
+
+    /* Animations */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .testing-dot { animation: pulse 1.5s infinite; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.2rem; }
+      .hero { padding: 60px 16px 50px; }
+      .section { padding: 50px 0; }
+      .download-card { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Hero -->
+<section class="hero">
+  <h1><span>WindowFlow</span></h1>
+  <p class="tagline">智能桌面窗口管理 — 一键迁移、智能推荐、工作流识别，让多屏幕工作更高效</p>
+  <div class="cta-group">
+    <a href="#download-section" class="btn btn-primary">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      立即下载
+    </a>
+    <a href="https://github.com/Fake-msn/WindowFlow" target="_blank" class="btn btn-outline">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
+      查看源码
+    </a>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>核心功能</h2>
+      <p>为多屏幕工作流打造的智能窗口管理方案</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="icon icon-blue">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3>一键窗口迁移</h3>
+        <p>将分散在多屏幕上的窗口快速迁移到指定屏幕，支持 DPI 感知缩放，无需手动拖拽调整。适合多显示器办公场景，拔插显示器后一键恢复窗口布局。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon icon-orange">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <h3>智能推荐引擎</h3>
+        <p>基于窗口使用频率和共现模式，在光标附近显示窗口组合建议。本地规则 + 可选在线模型双引擎驱动，自动识别你的工作流模式。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon icon-green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0112 2a8 8 0 018 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h3>隐私优先</h3>
+        <p>本地处理为主，仅通过进程信息（HWND + PID）识别窗口，不使用截图。所有统计数据存储在本地 SQLite 数据库中，不上传任何敏感信息。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon icon-blue">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>频繁切换检测</h3>
+        <p>自动追踪窗口切换频率，识别"频繁切换者"模式。当你在多个窗口间快速切换时，系统会捕捉这组窗口并推荐为一键恢复的工作流组合。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon icon-orange">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </div>
+        <h3>全局快捷键</h3>
+        <p>默认 <strong>Ctrl+Shift+Space</strong> 唤起浮动面板，支持鼠标侧键（前进/后退按钮）触发。完全可自定义，不干扰其他应用快捷键。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon icon-green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </div>
+        <h3>灵活配置</h3>
+        <p>推荐列表数量、每列表窗口数、停留时间阈值、频繁切换灵敏度全部可调。支持深色/浅色/跟随系统主题切换，每个设置项都有详细说明提示。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Usage Guide -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-header">
+      <h2>快速上手</h2>
+      <p>三步完成工作流窗口组合迁移</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>唤起面板</h3>
+        <p>按下 <strong>Ctrl+Shift+Space</strong> 或点击鼠标侧键，浮动面板在光标位置弹出。面板采用毛玻璃效果，不会遮挡当前工作内容。</p>
+        <div class="screenshot">
+          <div class="mock-ui">
+            <div class="mock-bar"></div>
+            <div class="mock-card"></div>
+            <div class="mock-card"></div>
+            <div class="mock-card"></div>
+          </div>
+          <p style="margin-top:12px">悬浮面板预览 — 当前窗口列表 & 推荐组合</p>
+        </div>
+      </div>
+      <div class="step">
+        <h3>选择目标</h3>
+        <p>面板上半部分展示当前所有窗口的缩略图卡片，下半部分展示智能推荐的工作流组合。选择目标屏幕或推荐组合，点击迁移按钮。</p>
+        <div class="screenshot">
+          <div class="mock-ui">
+            <div class="mock-card" style="width:90%"></div>
+            <div class="mock-card" style="width:70%"></div>
+            <div class="mock-btn"></div>
+          </div>
+          <p style="margin-top:12px">智能推荐 — 窗口组合 & 类型标签</p>
+        </div>
+      </div>
+      <div class="step">
+        <h3>一键迁移</h3>
+        <p>点击后所有目标窗口自动迁移到指定屏幕，同时恢复窗口相对位置。系统会记录这次操作，持续优化推荐模型。</p>
+        <div class="screenshot">
+          <div class="mock-ui">
+            <div class="mock-bar" style="width:80%"></div>
+            <div class="mock-bar" style="width:40%"></div>
+            <div class="mock-bar" style="width:90%"></div>
+          </div>
+          <p style="margin-top:12px">窗口迁移完成 — 多屏布局示意图</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tech Stack -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>技术架构</h2>
+      <p>高性能 Rust 后端 + 现代 React 前端</p>
+    </div>
+    <div class="tech-tags">
+      <span class="tech-tag">Rust</span>
+      <span class="tech-tag">Tauri 2.0</span>
+      <span class="tech-tag">React</span>
+      <span class="tech-tag">TypeScript</span>
+      <span class="tech-tag">Tailwind CSS</span>
+      <span class="tech-tag">SQLite</span>
+      <span class="tech-tag">Win32 API</span>
+      <span class="tech-tag">DWM</span>
+      <span class="tech-tag">OpenAI API</span>
+    </div>
+    <div style="max-width:700px;margin:2rem auto 0;text-align:center;color:var(--mid-gray);">
+      <p>WindowFlow 采用 Tauri 2.0 框架，Rust 处理底层窗口管理和进程监控，React + TypeScript 构建响应式 UI。本地 SQLite 存储使用数据，可选接入 OpenAI 兼容 API 增强推荐。支持 Windows 10/11，后续将扩展 macOS 和 Linux 平台。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Download -->
+<section id="download-section">
+  <div class="container">
+    <div class="section-header">
+      <h2 style="color:var(--light)">立即下载</h2>
+      <p>支持 Windows 10/11，提供安装版和便携版</p>
+    </div>
+    <div class="download-card">
+      <div class="version-badge" id="version-badge">加载中...</div>
+      <h3 style="color:var(--light)">WindowFlow</h3>
+      <p style="color:var(--mid-gray);margin-bottom:1.5rem">智能桌面窗口管理工具</p>
+
+      <div id="download-links">
+        <p style="color:var(--mid-gray);">正在检测最佳下载节点...</p>
+      </div>
+
+      <div class="proxy-status testing" id="proxy-status">
+        <span class="testing-dot">●</span> <span id="proxy-text">测速中...</span>
+      </div>
+
+      <div class="download-info" style="margin-top:1.5rem">
+        <p>系统要求：Windows 10/11 · WebView2 运行时（系统自带）</p>
+        <p>文件大小：约 7 MB · 版本：<span id="version-text">—</span></p>
+        <p style="margin-top:1rem;font-size:0.8rem;">
+          下载加速由国内镜像节点自动提供 · 自动选择延迟最低的节点
+        </p>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:2rem;">
+      <a href="https://github.com/Fake-msn/WindowFlow" target="_blank" class="btn btn-outline" style="color:var(--light);border-color:var(--mid-gray);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        访问 GitHub 仓库
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <p>WindowFlow &copy; 2026 · Built with Rust + Tauri 2.0</p>
+    <p style="margin-top:8px;">
+      <a href="https://github.com/Fake-msn/WindowFlow">GitHub</a> ·
+      <a href="https://github.com/Fake-msn/WindowFlow/releases">Releases</a> ·
+      <a href="https://github.com/Fake-msn/WindowFlow/issues">Issues</a>
+    </p>
+  </div>
+</footer>
+
+<!-- Smart Download Script -->
+<script>
+(async function() {
+  const REPO = 'Fake-msn/WindowFlow';
+  const API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+
+  // Mirror proxies for China
+  const MIRRORS = [
+    { name: '直连 GitHub', url: '', region: 'global' },
+    { name: 'ghproxy.com', url: 'https://ghproxy.com/', region: 'cn' },
+    { name: 'gh.ddlc.top', url: 'https://gh.ddlc.top/', region: 'cn' },
+    { name: 'gh.con.sh', url: 'https://gh.con.sh/', region: 'cn' },
+    { name: 'hub.fgit.ml', url: 'https://hub.fgit.ml/', region: 'cn' },
+  ];
+
+  const statusEl = document.getElementById('proxy-status');
+  const statusText = document.getElementById('proxy-text');
+  const linksEl = document.getElementById('download-links');
+  const versionBadge = document.getElementById('version-badge');
+  const versionText = document.getElementById('version-text');
+
+  // Fetch latest release
+  let release;
+  try {
+    const resp = await fetch(API);
+    release = await resp.json();
+  } catch (e) {
+    linksEl.innerHTML = '<p style="color:var(--orange);">无法获取版本信息，请访问 <a href="https://github.com/' + REPO + '/releases" style="color:var(--blue);">GitHub Releases</a></p>';
+    statusEl.className = 'proxy-status slow';
+    statusText.textContent = '网络连接失败';
+    return;
+  }
+
+  const tag = release.tag_name || 'v1.0.0';
+  versionBadge.textContent = tag;
+  versionText.textContent = tag;
+
+  // Find MSI and ZIP assets
+  const msi = release.assets?.find(a => a.name.endsWith('.msi'));
+  const zip = release.assets?.find(a => a.name.endsWith('.zip'));
+
+  // Test latency to each mirror
+  async function testLatency(mirror) {
+    const testUrl = mirror.url
+      ? mirror.url + 'https://api.github.com/zen'
+      : 'https://api.github.com/zen';
+    const start = performance.now();
+    try {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 3000);
+      await fetch(testUrl, { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(timeout);
+      return performance.now() - start;
+    } catch {
+      return Infinity;
+    }
+  }
+
+  // Test all mirrors
+  statusEl.className = 'proxy-status testing';
+  statusText.textContent = '测速中...';
+  const results = await Promise.all(MIRRORS.map(async m => ({
+    ...m,
+    latency: await testLatency(m)
+  })));
+
+  // Sort by latency
+  results.sort((a, b) => a.latency - b.latency);
+  const best = results[0];
+  const isFast = best.latency < 800;
+
+  statusEl.className = isFast ? 'proxy-status fast' : 'proxy-status slow';
+  statusText.textContent = best.name + (best.latency < Infinity
+    ? ' (' + Math.round(best.latency) + 'ms)'
+    : ' — 将使用直连');
+
+  // Build download links
+  const proxy = best.latency < Infinity && best.url ? best.url : '';
+
+  let html = '<div style="display:flex;flex-direction:column;gap:12px;align-items:center;">';
+
+  if (msi) {
+    const msiUrl = proxy + msi.browser_download_url;
+    html += '<a href="' + msiUrl + '" class="btn btn-primary" style="width:220px;justify-content:center;">';
+    html += '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    html += '下载安装版 (MSI)</a>';
+  }
+
+  if (zip) {
+    const zipUrl = proxy + zip.browser_download_url;
+    html += '<a href="' + zipUrl + '" class="btn btn-outline" style="width:220px;justify-content:center;color:var(--light);border-color:var(--mid-gray);">';
+    html += '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    html += '下载便携版 (ZIP)</a>';
+  }
+
+  html += '</div>';
+
+  if (!msi && !zip) {
+    html = '<p style="color:var(--orange);">暂无可下载文件，请访问 <a href="https://github.com/' + REPO + '/releases" style="color:var(--blue);">GitHub Releases</a></p>';
+  }
+
+  // Add mirror info
+  html += '<p style="margin-top:12px;font-size:0.8rem;color:var(--mid-gray);">';
+  html += '通过 <strong>' + best.name + '</strong> 加速下载';
+  if (best.latency < Infinity) {
+    html += ' · 延迟 ' + Math.round(best.latency) + 'ms';
+  }
+  html += '</p>';
+
+  linksEl.innerHTML = html;
+})();
+</script>
+
+</body>
+</html>
