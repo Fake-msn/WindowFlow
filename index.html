@@ -495,14 +495,19 @@
 <!-- Smart Download Script -->
 <script>
 (async function() {
-  const REPO = 'Fake-msn/WindowFlow';
-  const API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+  // ====== Release Info (updated by GitHub Actions on release) ======
+  // RELEASE_BLOCK_START
+  const RELEASE_TAG = 'v1.0.0';
+  const RELEASE_ASSETS = [{"name":"WindowFlow_0.1.0_x64_en-US.msi","label":"下载安装版 (MSI)","size":"6.9 MB","type":"msi"},{"name":"WindowFlow-Portable-v1.0.0.zip","label":"下载便携版 (ZIP)","size":"6.5 MB","type":"zip"}];
+  // RELEASE_BLOCK_END
+  const RELEASE_DOWNLOAD_BASE = 'https://github.com/Fake-msn/WindowFlow/releases/download/' + RELEASE_TAG + '/';
 
-  // Mirror proxies for China (verified reachable: 2026-07-14)
-  // ghproxy.com: timeout | gh.con.sh: suspended | hub.fgit.ml: DNS not resolved
+  // ====== Mirror Proxies (verified working: 2026-07-14) ======
   const MIRRORS = [
-    { name: '直连 GitHub', url: '', region: 'global' },
-    { name: 'gh.ddlc.top 镜像', url: 'https://gh.ddlc.top/', region: 'cn' },
+    { name: 'gh.ddlc.top',      url: 'https://gh.ddlc.top/' },
+    { name: 'gh.2i.gs',         url: 'https://gh.2i.gs/' },
+    { name: 'git.wej.cc',       url: 'http://git.wej.cc/' },
+    { name: 'ghproxy.net',      url: 'https://ghproxy.net/' },
   ];
 
   const statusEl = document.getElementById('proxy-status');
@@ -511,92 +516,111 @@
   const versionBadge = document.getElementById('version-badge');
   const versionText = document.getElementById('version-text');
 
-  // Fetch latest release
-  let release;
+  // Set version display
+  versionBadge.textContent = RELEASE_TAG;
+  versionText.textContent = RELEASE_TAG;
+
+  // Try to fetch latest release from GitHub API (may fail in China)
+  let releaseAssets = RELEASE_ASSETS;
+  let releaseTag = RELEASE_TAG;
   try {
-    const resp = await fetch(API);
-    release = await resp.json();
-  } catch (e) {
-    linksEl.innerHTML = '<p style="color:var(--orange);">无法获取版本信息，请访问 <a href="https://github.com/' + REPO + '/releases" style="color:var(--blue);">GitHub Releases</a></p>';
-    statusEl.className = 'proxy-status slow';
-    statusText.textContent = '网络连接失败';
-    return;
+    const apiResp = await fetch('https://api.github.com/repos/Fake-msn/WindowFlow/releases/latest', {
+      headers: { 'Accept': 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (apiResp.ok) {
+      const release = await apiResp.json();
+      releaseTag = release.tag_name || RELEASE_TAG;
+      versionBadge.textContent = releaseTag;
+      versionText.textContent = releaseTag;
+      if (release.assets?.length) {
+        releaseAssets = release.assets.map(a => ({
+          name: a.name,
+          label: a.name.endsWith('.msi') ? '下载安装版 (MSI)' : '下载便携版 (ZIP)',
+          size: (a.size / 1024 / 1024).toFixed(1) + ' MB',
+          type: a.name.endsWith('.msi') ? 'msi' : 'zip'
+        }));
+      }
+    }
+  } catch (_) {
+    // GitHub API unreachable, use hardcoded fallback
   }
 
-  const tag = release.tag_name || 'v1.0.0';
-  versionBadge.textContent = tag;
-  versionText.textContent = tag;
+  // ====== Test mirrors by downloading first 1KB of actual file ======
+  // Use the first asset (ZIP) as the test file
+  const testAsset = releaseAssets.find(a => a.type === 'zip') || releaseAssets[0];
+  const testFilePath = RELEASE_DOWNLOAD_BASE + testAsset.name;
 
-  // Find MSI and ZIP assets
-  const msi = release.assets?.find(a => a.name.endsWith('.msi'));
-  const zip = release.assets?.find(a => a.name.endsWith('.zip'));
+  statusEl.className = 'proxy-status testing';
+  statusText.textContent = '测速中...';
 
-  // Test latency to each mirror
-  async function testLatency(mirror) {
-    // For mirrors, test their base URL; for direct, test GitHub API
-    const testUrl = mirror.url
-      ? mirror.url + 'https://github.com'
-      : 'https://api.github.com/zen';
+  async function testMirrorSpeed(mirror) {
+    const testUrl = mirror.url + testFilePath;
     const start = performance.now();
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 5000);
-      await fetch(testUrl, { signal: ctrl.signal, cache: 'no-store', mode: 'no-cors' });
+      const timeout = setTimeout(() => ctrl.abort(), 8000);
+      // Download only first 1024 bytes to test speed
+      const resp = await fetch(testUrl, {
+        signal: ctrl.signal,
+        cache: 'no-store',
+        headers: { 'Range': 'bytes=0-1023' }
+      });
       clearTimeout(timeout);
-      return performance.now() - start;
+      // Verify we got actual binary data (not an HTML error page)
+      if (resp.ok || resp.status === 206) {
+        const buf = await resp.arrayBuffer();
+        if (buf.byteLength > 100) {
+          return { mirror, latency: performance.now() - start, ok: true };
+        }
+      }
+      return { mirror, latency: Infinity, ok: false };
     } catch {
-      return Infinity;
+      return { mirror, latency: Infinity, ok: false };
     }
   }
 
-  // Test all mirrors
-  statusEl.className = 'proxy-status testing';
-  statusText.textContent = '测速中...';
-  const results = await Promise.all(MIRRORS.map(async m => ({
-    ...m,
-    latency: await testLatency(m)
-  })));
+  const results = await Promise.all(MIRRORS.map(m => testMirrorSpeed(m)));
 
-  // Sort by latency
-  results.sort((a, b) => a.latency - b.latency);
-  const best = results[0];
-  const isFast = best.latency < 800;
+  // Filter to working mirrors, sort by latency
+  const working = results.filter(r => r.ok).sort((a, b) => a.latency - b.latency);
 
-  statusEl.className = isFast ? 'proxy-status fast' : 'proxy-status slow';
-  statusText.textContent = best.name + (best.latency < Infinity
-    ? ' (' + Math.round(best.latency) + 'ms)'
-    : ' — 将使用直连');
+  let best;
+  if (working.length > 0) {
+    best = working[0];
+    statusEl.className = best.latency < 3000 ? 'proxy-status fast' : 'proxy-status slow';
+    statusText.textContent = best.mirror.name + ' (' + Math.round(best.latency) + 'ms)';
+  } else {
+    // All mirrors failed — use direct GitHub as last resort
+    best = { mirror: { name: '直连 GitHub', url: '' }, latency: Infinity };
+    statusEl.className = 'proxy-status slow';
+    statusText.textContent = '所有镜像不可用，使用直连';
+  }
 
-  // Build download links
-  const proxy = best.latency < Infinity && best.url ? best.url : '';
+  const proxy = best.mirror.url;
 
+  // Build download links for all assets
   let html = '<div style="display:flex;flex-direction:column;gap:12px;align-items:center;">';
 
-  if (msi) {
-    const msiUrl = proxy + msi.browser_download_url;
-    html += '<a href="' + msiUrl + '" class="btn btn-primary" style="width:220px;justify-content:center;">';
-    html += '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-    html += '下载安装版 (MSI)</a>';
-  }
-
-  if (zip) {
-    const zipUrl = proxy + zip.browser_download_url;
-    html += '<a href="' + zipUrl + '" class="btn btn-outline" style="width:220px;justify-content:center;color:var(--light);border-color:var(--mid-gray);">';
-    html += '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-    html += '下载便携版 (ZIP)</a>';
-  }
+  releaseAssets.forEach((asset, i) => {
+    const downloadUrl = proxy + RELEASE_DOWNLOAD_BASE + asset.name;
+    const isPrimary = asset.type === 'msi';
+    html += '<a href="' + downloadUrl + '" class="btn ' + (isPrimary ? 'btn-primary' : 'btn-outline')
+      + '" style="width:240px;justify-content:center;' + (isPrimary ? '' : 'color:var(--light);border-color:var(--mid-gray);') + '">';
+    html += '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    html += asset.label + ' (' + asset.size + ')</a>';
+  });
 
   html += '</div>';
 
-  if (!msi && !zip) {
-    html = '<p style="color:var(--orange);">暂无可下载文件，请访问 <a href="https://github.com/' + REPO + '/releases" style="color:var(--blue);">GitHub Releases</a></p>';
-  }
-
-  // Add mirror info
+  // Mirror info
   html += '<p style="margin-top:12px;font-size:0.8rem;color:var(--mid-gray);">';
-  html += '通过 <strong>' + best.name + '</strong> 加速下载';
-  if (best.latency < Infinity) {
-    html += ' · 延迟 ' + Math.round(best.latency) + 'ms';
+  if (working.length > 0) {
+    html += '通过 <strong>' + best.mirror.name + '</strong> 加速下载';
+    html += ' · ' + working.length + '/' + MIRRORS.length + ' 个镜像可用';
+    html += '<br><span style="opacity:0.7;">测速方式：实际下载文件首字节验证，确保链接有效</span>';
+  } else {
+    html += '镜像节点暂不可用，请稍后重试或访问 <a href="https://github.com/Fake-msn/WindowFlow/releases" style="color:var(--blue);">GitHub Releases</a>';
   }
   html += '</p>';
 

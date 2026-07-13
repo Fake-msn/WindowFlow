@@ -29,6 +29,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Update release info
+        run: |
+          # Fetch latest release from GitHub API
+          RELEASE=$(curl -sS -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest")
+
+          TAG=$(echo "$RELEASE" | jq -r '.tag_name // "v1.0.0"')
+          echo "Latest release: $TAG"
+
+          # Build assets JSON (single line for easy replacement)
+          ASSETS_JSON=$(echo "$RELEASE" | jq -c '[.assets[] | {
+            name: .name,
+            label: (if (.name | endswith(".msi")) then "下载安装版 (MSI)" else "下载便携版 (ZIP)" end),
+            size: ((.size / 1048576 * 10 | floor) / 10 | tostring + " MB"),
+            type: (if (.name | endswith(".msi")) then "msi" else "zip" end)
+          }]')
+
+          if [ "$ASSETS_JSON" != "[]" ] && [ "$ASSETS_JSON" != "null" ]; then
+            # Use Python to replace the block between markers
+            python3 -c "
+import re
+with open('index.html', 'r') as f:
+    content = f.read()
+
+tag = '${TAG}'
+assets = '${ASSETS_JSON}'
+
+new_block = f\"\"\"  const RELEASE_TAG = '{tag}';
+  const RELEASE_ASSETS = {assets};
+\"\"\"
+
+content = re.sub(
+    r'// RELEASE_BLOCK_START\n.*?\n// RELEASE_BLOCK_END',
+    '// RELEASE_BLOCK_START\n' + new_block + '// RELEASE_BLOCK_END',
+    content,
+    flags=re.DOTALL
+)
+
+with open('index.html', 'w') as f:
+    f.write(content)
+"
+            echo "Release info injected: $TAG"
+          else
+            echo "No assets found, keeping hardcoded defaults"
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
