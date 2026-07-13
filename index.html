@@ -498,13 +498,11 @@
   const REPO = 'Fake-msn/WindowFlow';
   const API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
 
-  // Mirror proxies for China
+  // Mirror proxies for China (verified reachable: 2026-07-14)
+  // ghproxy.com: timeout | gh.con.sh: suspended | hub.fgit.ml: DNS not resolved
   const MIRRORS = [
     { name: '直连 GitHub', url: '', region: 'global' },
-    { name: 'ghproxy.com', url: 'https://ghproxy.com/', region: 'cn' },
-    { name: 'gh.ddlc.top', url: 'https://gh.ddlc.top/', region: 'cn' },
-    { name: 'gh.con.sh', url: 'https://gh.con.sh/', region: 'cn' },
-    { name: 'hub.fgit.ml', url: 'https://hub.fgit.ml/', region: 'cn' },
+    { name: 'gh.ddlc.top 镜像', url: 'https://gh.ddlc.top/', region: 'cn' },
   ];
 
   const statusEl = document.getElementById('proxy-status');
@@ -535,14 +533,15 @@
 
   // Test latency to each mirror
   async function testLatency(mirror) {
+    // For mirrors, test their base URL; for direct, test GitHub API
     const testUrl = mirror.url
-      ? mirror.url + 'https://api.github.com/zen'
+      ? mirror.url + 'https://github.com'
       : 'https://api.github.com/zen';
     const start = performance.now();
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 3000);
-      await fetch(testUrl, { signal: ctrl.signal, cache: 'no-store' });
+      const timeout = setTimeout(() => ctrl.abort(), 5000);
+      await fetch(testUrl, { signal: ctrl.signal, cache: 'no-store', mode: 'no-cors' });
       clearTimeout(timeout);
       return performance.now() - start;
     } catch {
