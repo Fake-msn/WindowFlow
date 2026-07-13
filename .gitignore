@@ -33,6 +33,6 @@ node-v*/
 *.log
 npm-debug.log*
 
-# Temp files
-*.tmp
-*.temp
+# Portable package
+WindowFlow-Portable/
+WindowFlow-Portable-*.zip

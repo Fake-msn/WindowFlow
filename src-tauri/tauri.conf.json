@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "identifier": "com.windowflow.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "cd ../frontend && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "beforeBuildCommand": "cd ../frontend && npm run build",
+    "frontendDist": "../frontend/dist"
   },
   "app": {
     "withGlobalTauri": false,
