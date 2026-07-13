@@ -1,0 +1,38 @@
+# Rust build artifacts
+src-tauri/target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Backup files
+backup_*/
+*.zip
+
+# Installers and toolchain
+*.msi
+*.exe
+node-v*/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp files
+*.tmp
+*.temp
