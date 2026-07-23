@@ -40,9 +40,9 @@ jobs:
 
           ASSETS_JSON=$(echo "$RELEASE" | jq -c '[.assets[] | {
             name: .name,
-            label: (if (.name | endswith(".msi")) then "下载安装版 (MSI)" else "下载便携版 (ZIP)" end),
+            label: (if (.name | endswith(".msi")) then "下载安装版 (MSI)" elif (.name | endswith(".exe")) then "下载安装版 (NSIS)" else "下载便携版 (ZIP)" end),
             size: ((.size / 1048576 * 10 | floor) / 10 | tostring + " MB"),
-            type: (if (.name | endswith(".msi")) then "msi" else "zip" end)
+            type: (if (.name | endswith(".msi")) then "msi" elif (.name | endswith(".exe")) then "nsis" else "zip" end)
           }]')
 
           if [ "$ASSETS_JSON" != "[]" ] && [ "$ASSETS_JSON" != "null" ]; then

@@ -37,7 +37,7 @@ export default function AboutDialog({ onClose }: AboutDialogProps) {
 
           {/* 应用信息 */}
           <h3 className={`text-xl font-bold mb-2 ${isLight ? 'text-gray-800' : 'text-white'}`}>WindowFlow</h3>
-          <p className={`text-sm mb-4 ${isLight ? 'text-gray-500' : 'text-gray-400'}`}>版本 0.1.0</p>
+          <p className={`text-sm mb-4 ${isLight ? 'text-gray-500' : 'text-gray-400'}`}>版本 1.2.0</p>
 
           {/* 描述 */}
           <p className={`text-sm mb-6 leading-relaxed ${isLight ? 'text-gray-700' : 'text-gray-300'}`}>

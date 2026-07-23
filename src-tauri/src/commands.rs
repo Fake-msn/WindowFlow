@@ -674,12 +674,8 @@ pub fn cleanup_old_data(state: State<AppState>, retention_days: u32) -> Result<u
 
 #[tauri::command]
 pub fn get_window_thumbnail(hwnd: i64, max_width: u32, max_height: u32) -> Result<String, String> {
-    crate::platform::windows::capture_window_thumbnail(
-        WindowHandle(hwnd),
-        max_width,
-        max_height,
-    )
-    .map_err(|e| e.to_string())
+    // [T5] 经缓存层获取：命中未过期缓存则复用，否则重新捕获并写入外置缓存目录
+    crate::services::thumbnail_cache::get_or_capture(hwnd, max_width, max_height)
 }
 
 #[derive(Serialize)]

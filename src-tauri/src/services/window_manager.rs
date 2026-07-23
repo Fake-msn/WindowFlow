@@ -26,15 +26,25 @@ impl WindowManagerService {
         hwnd: WindowHandle,
         target_monitor: MonitorId,
     ) -> Result<(), PlatformError> {
-        // 保存原始状态
-        let original_info = self.get_window_info(hwnd)?;
+        // [T4] 迁移前捕获窗口放置状态，用于失败回滚
+        let snapshot = self.platform.capture_window_state(hwnd).ok();
         
         // 尝试迁移
         match self.platform.move_window(hwnd, target_monitor) {
             Ok(_) => Ok(()),
             Err(e) => {
-                // 回滚失败(窗口可能已移动,无法完全恢复)
-                log::error!("Migration failed, rollback not implemented: {}", e);
+                // [T4] 迁移失败：回滚到迁移前状态
+                if let Some(snap) = &snapshot {
+                    match self.platform.restore_window_state(hwnd, snap) {
+                        Ok(_) => log::warn!("Migration failed, window state rolled back: {}", e),
+                        Err(re) => log::error!(
+                            "Migration failed AND rollback failed: migrate_err={}, rollback_err={}",
+                            e, re
+                        ),
+                    }
+                } else {
+                    log::error!("Migration failed and no snapshot for rollback: {}", e);
+                }
                 Err(e)
             }
         }
@@ -95,6 +105,8 @@ impl WindowManagerService {
 
             // 尝试迁移窗口（批量模式：不激活窗口，避免焦点干扰）
             log::info!("Attempting to move window {:?}", hwnd);
+            // [T4] 迁移前捕获状态用于失败回滚
+            let snapshot = self.platform.capture_window_state(hwnd).ok();
             let migrate_result = self.platform.move_window_internal(hwnd, target_monitor, false);
 
             if migrate_result.is_ok() {
@@ -115,6 +127,14 @@ impl WindowManagerService {
             } else {
                 let error_msg = migrate_result.unwrap_err().to_string();
                 log::error!("Migration failed for {:?}: {}", hwnd, error_msg);
+                // [T4] 回滚到迁移前状态
+                if let Some(snap) = &snapshot {
+                    if let Err(re) = self.platform.restore_window_state(hwnd, snap) {
+                        log::error!("Rollback failed for {:?}: {}", hwnd, re);
+                    } else {
+                        log::info!("Window {:?} rolled back after failed migration", hwnd);
+                    }
+                }
                 results.push(SmartMigrateResult {
                     hwnd,
                     success: false,

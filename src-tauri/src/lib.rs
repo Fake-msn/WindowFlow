@@ -287,15 +287,73 @@ pub fn run() {
             services::process_monitor::start_window_destroy_hook();
             log::info!("Window destroy hook started");
 
-            // 启动后端定时器，每 500ms 检查焦点窗口变化
-            let app_handle = app.handle().clone();
+            // [ATT&CK 整改] 使用 EVENT_SYSTEM_FOREGROUND 事件钩子替代轮询
+            // 焦点变化时立即触发回调，零延迟且无 CPU 空转
+            services::process_monitor::start_foreground_hook();
+            log::info!("Foreground hook started (replaces polling)");
+
+            // [T6] 数据库外置：存放到 %APPDATA%\\WindowFlow（独立于程序安装目录，
+            // 避免被杀毒软件误判为程序目录内的可疑写入行为）。数据库经 SQLCipher 加密。
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                let data_dir = std::path::Path::new(&appdata).join("WindowFlow");
+                if let Err(e) = std::fs::create_dir_all(&data_dir) {
+                    log::error!("Failed to create data dir: {}", e);
+                }
+                let db_path = data_dir.join("windowflow.db");
+                match services::database::DatabaseService::new(&db_path.to_string_lossy()) {
+                    Ok(db) => {
+                        let state: State<AppState> = app.state();
+                        // 启动时从数据库加载历史推荐数据
+                        if let Ok(mut engine) = state.recommendation_engine.lock() {
+                            let _ = engine.load_from_database(&db);
+                        }
+                        if let Ok(mut db_opt) = state.database.lock() {
+                            *db_opt = Some(db);
+                        }
+                        log::info!("[T6] Encrypted database initialized at {:?}", db_path);
+                    }
+                    Err(e) => log::error!("Failed to initialize database: {}", e),
+                }
+            }
+
+            // [T6] 每 2 分钟持久化推荐数据到外置数据库
+            let save_handle = app.handle().clone();
             std::thread::spawn(move || {
                 loop {
-                    let state: State<AppState> = app_handle.state();
-                    if let Ok(monitor) = state.process_monitor.lock() {
-                        monitor.poll_once();
+                    std::thread::sleep(std::time::Duration::from_secs(120));
+                    let state: State<AppState> = save_handle.state();
+                    let events = {
+                        match state.process_monitor.lock() {
+                            Ok(m) => m.get_all_events(),
+                            Err(_) => continue,
+                        }
+                    };
+                    if events.is_empty() {
+                        continue;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let db_clone = {
+                        match state.database.lock() {
+                            Ok(dbopt) => dbopt.clone(),
+                            Err(_) => None,
+                        }
+                    };
+                    if let Some(db) = db_clone {
+                        if let Ok(mut engine) = state.recommendation_engine.lock() {
+                            engine.update_from_events(&events);
+                            if let Err(e) = engine.save_to_database(&db) {
+                                log::error!("Periodic save failed: {}", e);
+                            }
+                        }
+                    }
+                }
+            });
+
+            // [T5] 缩略图缓存清理：启动清理一次 + 每 60 秒清理过期/超量缩略图
+            services::thumbnail_cache::cleanup();
+            std::thread::spawn(|| {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    services::thumbnail_cache::cleanup();
                 }
             });
 

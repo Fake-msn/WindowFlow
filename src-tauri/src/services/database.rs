@@ -13,6 +13,9 @@ pub enum DatabaseError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Key management error: {0}")]
+    KeyError(String),
 }
 
 #[derive(Clone)]
@@ -23,6 +26,12 @@ pub struct DatabaseService {
 impl DatabaseService {
     pub fn new(db_path: &str) -> Result<Self, DatabaseError> {
         let conn = Connection::open(db_path)?;
+
+        // [T1] SQLCipher 加密：必须在任何其他 SQL 操作之前设置密钥。
+        // 密钥来自 Windows 凭据管理器（不存在则自动生成 256-bit 随机密钥）。
+        let key = crate::services::crypto_key::get_or_create_db_key()
+            .map_err(DatabaseError::KeyError)?;
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key))?;
 
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 

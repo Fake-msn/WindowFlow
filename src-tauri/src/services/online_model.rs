@@ -48,11 +48,22 @@ pub struct OnlineModelService {
 
 impl OnlineModelService {
     pub fn new(api_key: String, api_endpoint: String, model_name: String) -> Self {
+        // [ATT&CK 整改] 设置连接超时 5s + 读取超时 15s，避免长时间挂起触发 EDR 告警
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(15))
+            .pool_idle_timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|e| {
+            log::error!("Failed to build reqwest client with timeouts: {}, falling back to default", e);
+            reqwest::Client::new()
+        });
+
         Self {
             api_key,
             api_endpoint,
             model_name,
-            client: reqwest::Client::new(),
+            client,
         }
     }
 

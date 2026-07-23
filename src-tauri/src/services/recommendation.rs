@@ -1,6 +1,7 @@
 use crate::types::*;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::{HashMap, HashSet};
+use crate::services::algorithms;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RecommendationError {
@@ -35,6 +36,12 @@ pub struct RecommendationEngine {
     co_occurrence: HashMap<(String, String), u32>,
     /// 推荐设置
     settings: RecommendationSettings,
+    /// 进程名缓存: pid -> process_name，减少 OpenProcess 调用频率
+    process_name_cache: HashMap<u32, String>,
+    /// [T3] 时间衰减加权共现值（近期共现权重更高）
+    co_occurrence_weight: HashMap<(String, String), f64>,
+    /// [T3] 完整时序事件（保留切换顺序，供 Apriori/PrefixSpan 工作流分析）
+    ordered_events: Vec<WindowFocusEvent>,
 }
 
 impl RecommendationEngine {
@@ -44,78 +51,101 @@ impl RecommendationEngine {
             dwell_records: HashMap::new(),
             co_occurrence: HashMap::new(),
             settings: RecommendationSettings::default(),
+            process_name_cache: HashMap::new(),
+            co_occurrence_weight: HashMap::new(),
+            ordered_events: Vec::new(),
         }
     }
 
     pub fn update_from_events(&mut self, events: &[WindowFocusEvent]) {
-        // 先去重：每个 hwnd 只保留最新的事件，并验证窗口有效性
-        let mut latest_event_per_hwnd: HashMap<i64, &WindowFocusEvent> = HashMap::new();
-        
+        // [CR 修复] PID 可能被复用，缓存超过阈值时清空重建，避免返回过期进程名
+        const MAX_CACHE_SIZE: usize = 200;
+        if self.process_name_cache.len() > MAX_CACHE_SIZE {
+            self.process_name_cache.clear();
+        }
+
+        // 第一步：验证 + 过滤（保留完整时序，用于 dwell/co-occurrence 计算）
+        // 只过滤掉无效 hwnd 和被回收的 hwnd，不破坏切换序列
+        let mut valid_events: Vec<WindowFocusEvent> = Vec::new();
+
         for event in events.iter() {
             let hwnd_val = event.hwnd.0;
-            
-            // 验证 hwnd 是否仍然有效
+
             let hwnd = windows::Win32::Foundation::HWND(hwnd_val as *mut _);
             let is_valid = unsafe {
                 windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
             };
-            
+
             if !is_valid {
                 continue;
             }
-            
-            // 验证进程名是否匹配（防止 hwnd 被回收）
+
             let mut pid: u32 = 0;
             let _ = unsafe {
                 windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, Some(&mut pid))
             };
-            
+
             if pid == 0 {
                 continue;
             }
-            
-            let current_process_name = unsafe {
-                let handle = windows::Win32::System::Threading::OpenProcess(
-                    windows::Win32::System::Threading::PROCESS_QUERY_INFORMATION | 
-                    windows::Win32::System::Threading::PROCESS_VM_READ,
-                    false,
-                    pid
-                );
-                
-                match handle {
-                    Ok(h) => {
-                        let mut buffer = [0u16; 260];
-                        let mut size: u32 = 260;
-                        let result = windows::Win32::System::Threading::QueryFullProcessImageNameW(
-                            h,
-                            windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
-                            windows::core::PWSTR(buffer.as_mut_ptr()),
-                            &mut size
-                        );
-                        
-                        let _ = windows::Win32::Foundation::CloseHandle(h);
-                        
-                        if result.is_ok() {
-                            let path = String::from_utf16_lossy(&buffer[..size as usize]);
-                            std::path::Path::new(&path)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("unknown")
-                                .to_string()
-                        } else {
-                            String::new()
+
+            // [ATT&CK 整改] 使用进程名缓存
+            let current_process_name = if let Some(cached) = self.process_name_cache.get(&pid) {
+                cached.clone()
+            } else {
+                let name = unsafe {
+                    let handle = windows::Win32::System::Threading::OpenProcess(
+                        windows::Win32::System::Threading::PROCESS_QUERY_INFORMATION |
+                        windows::Win32::System::Threading::PROCESS_VM_READ,
+                        false,
+                        pid
+                    );
+
+                    match handle {
+                        Ok(h) => {
+                            let mut buffer = [0u16; 260];
+                            let mut size: u32 = 260;
+                            let result = windows::Win32::System::Threading::QueryFullProcessImageNameW(
+                                h,
+                                windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
+                                windows::core::PWSTR(buffer.as_mut_ptr()),
+                                &mut size
+                            );
+
+                            let _ = windows::Win32::Foundation::CloseHandle(h);
+
+                            if result.is_ok() {
+                                let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                                std::path::Path::new(&path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("unknown")
+                                    .to_string()
+                            } else {
+                                String::new()
+                            }
                         }
+                        Err(_) => String::new()
                     }
-                    Err(_) => String::new()
-                }
+                };
+                self.process_name_cache.insert(pid, name.clone());
+                name
             };
-            
+
             if current_process_name != event.process_name {
                 log::debug!("update_from_events: skipping hwnd={} - recycled: expected={}, actual={}",
                     hwnd_val, event.process_name, current_process_name);
                 continue;
             }
-            
+
+            valid_events.push(event.clone());
+        }
+
+        // 第二步：去重（每个 hwnd 只保留最新事件）— 仅供 self.events 使用
+        // self.events 用于窗口组生成，需要唯一的窗口列表
+        let mut latest_event_per_hwnd: HashMap<i64, &WindowFocusEvent> = HashMap::new();
+        for event in valid_events.iter() {
+            let hwnd_val = event.hwnd.0;
             match latest_event_per_hwnd.get(&hwnd_val) {
                 Some(existing) => {
                     if event.timestamp > existing.timestamp {
@@ -127,19 +157,25 @@ impl RecommendationEngine {
                 }
             }
         }
-        
-        // 使用去重后的事件
+
         let deduped_events: Vec<WindowFocusEvent> = latest_event_per_hwnd
             .into_values()
             .cloned()
             .collect();
-        
-        log::info!("update_from_events: {} raw events -> {} deduplicated events", 
-            events.len(), deduped_events.len());
-        
-        self.events = deduped_events.clone();
-        self.calculate_dwell_times(&deduped_events);
-        self.build_co_occurrence_matrix(&deduped_events);
+
+        log::info!("update_from_events: {} raw -> {} valid -> {} deduped (per hwnd)",
+            events.len(), valid_events.len(), deduped_events.len());
+
+        // self.events 用去重后的（窗口组生成需要唯一窗口列表）
+        self.events = deduped_events;
+
+        // [T3] 保存完整时序事件用于 Apriori/PrefixSpan 工作流挖掘
+        self.ordered_events = valid_events.clone();
+
+        // dwell 和 co-occurrence 必须用完整时序事件（保留切换序列）
+        // 这是频繁切换推荐算法的核心数据源
+        self.calculate_dwell_times(&valid_events);
+        self.build_co_occurrence_matrix(&valid_events);
     }
 
     pub fn update_settings(&mut self, settings: RecommendationSettings) {
@@ -322,10 +358,15 @@ impl RecommendationEngine {
     /// 构建共现矩阵 - 基于时间窗口内的频繁切换
     fn build_co_occurrence_matrix(&mut self, events: &[WindowFocusEvent]) {
         self.co_occurrence.clear();
+        self.co_occurrence_weight.clear();
 
         if events.len() < 2 {
             return;
         }
+
+        // [T3] 时间衰减半衰期：3 天（72 小时）
+        const HALF_LIFE_HOURS: f64 = 72.0;
+        let now = Utc::now();
 
         // 时间窗口：30 分钟
         let window = Duration::minutes(30);
@@ -358,7 +399,11 @@ impl RecommendationEngine {
                     } else {
                         (apps[b].clone(), apps[a].clone())
                     };
-                    *self.co_occurrence.entry(key).or_insert(0) += 1;
+                    *self.co_occurrence.entry(key.clone()).or_insert(0) += 1;
+                    // [T3] 叠加时间衰减权重
+                    let age_hours = (now - current.timestamp).num_seconds() as f64 / 3600.0;
+                    *self.co_occurrence_weight.entry(key).or_insert(0.0) +=
+                        algorithms::time_decay_weight(age_hours, HALF_LIFE_HOURS);
                 }
             }
 
@@ -402,7 +447,7 @@ impl RecommendationEngine {
         // 先清理已销毁窗口的事件
         self.cleanup_destroyed_events_internal(destroyed_hwnds);
 
-        let ignore_set: HashSet<&str> = self.settings.ignore_list.iter().map(|s| s.as_str()).collect();
+        let ignore_set: HashSet<String> = self.settings.ignore_list.iter().cloned().collect();
 
         // 生成窗口组（共现频率最高的 2~5 个窗口）
         let groups = self.generate_window_groups(current_window, &ignore_set, mouse_events);
@@ -444,7 +489,7 @@ impl RecommendationEngine {
                 if let Some(event) = self.events.iter().find(|e| e.hwnd == *hwnd) {
                     let process = &event.process_name;
                     // 检查忽略清单
-                    if ignore_set.contains(process.as_str()) {
+                    if ignore_set.contains(process) {
                         continue;
                     }
                     seen_hwnds.insert(hwnd.0);
@@ -513,6 +558,18 @@ impl RecommendationEngine {
             }
         }
 
+        // [T3] 高频工作流组（Apriori 频繁项集 + PrefixSpan 序列排序），additive
+        if let Some(workflow) = self.generate_workflow_group(current_window, &ignore_set, max_count) {
+            let existing: HashSet<i64> = result_groups
+                .iter()
+                .flat_map(|g| g.windows.iter().map(|w| w.hwnd.0))
+                .collect();
+            let new_hwnds: HashSet<i64> = workflow.windows.iter().map(|w| w.hwnd.0).collect();
+            if new_hwnds != existing {
+                result_groups.push(workflow);
+            }
+        }
+
         log::info!("generate_recommendations: {} groups returned", result_groups.len());
 
         Ok(RecommendationResponse { groups: result_groups })
@@ -570,7 +627,7 @@ impl RecommendationEngine {
     fn generate_frequent_switcher_recommendations(
         &self,
         current_window: &WindowFocusEvent,
-        ignore_set: &HashSet<&str>,
+        ignore_set: &HashSet<String>,
     ) -> Vec<SingletonRecommendation> {
         let max_dwell = self.settings.recent_max_dwell_secs;
         let min_switches = self.settings.recent_min_switch_count;
@@ -589,7 +646,7 @@ impl RecommendationEngine {
             }
 
             // 跳过忽略清单中的进程
-            if ignore_set.contains(r.process_name.as_str()) {
+            if ignore_set.contains(&r.process_name) {
                 continue;
             }
 
@@ -645,9 +702,9 @@ impl RecommendationEngine {
 
     /// 生成窗口组推荐 - 基于共现频率，2~5 个窗口
     fn generate_window_groups(
-        &self,
+        &mut self,
         current_window: &WindowFocusEvent,
-        ignore_set: &HashSet<&str>,
+        ignore_set: &HashSet<String>,
         _mouse_events: &[MouseActivityEvent],
     ) -> Vec<RecommendationGroup> {
         let mut groups = Vec::new();
@@ -670,8 +727,22 @@ impl RecommendationEngine {
             }
         }
 
-        // 按共现次数排序
-        co_occurring_apps.sort_by(|a, b| b.1.cmp(&a.1));
+        // [T3] 按时间衰减加权的共现值排序（近期共现权重更高）
+        co_occurring_apps.sort_by(|a, b| {
+            let ka = if current_process < &a.0 {
+                (current_process.clone(), a.0.clone())
+            } else {
+                (a.0.clone(), current_process.clone())
+            };
+            let kb = if current_process < &b.0 {
+                (current_process.clone(), b.0.clone())
+            } else {
+                (b.0.clone(), current_process.clone())
+            };
+            let wa = self.co_occurrence_weight.get(&ka).copied().unwrap_or(a.1 as f64);
+            let wb = self.co_occurrence_weight.get(&kb).copied().unwrap_or(b.1 as f64);
+            wb.partial_cmp(&wa).unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // 生成窗口组：当前窗口 + 共现最多的应用（2~5 个）
         // 即使没有共现数据，也要生成包含当前窗口的组
@@ -716,7 +787,7 @@ impl RecommendationEngine {
             let mut recent_windows: Vec<(&DwellRecord)> = self
                 .dwell_records
                 .values()
-                .filter(|r| r.hwnd != current_window.hwnd && !ignore_set.contains(r.process_name.as_str()))
+                .filter(|r| r.hwnd != current_window.hwnd && !ignore_set.contains(&r.process_name))
                 .collect();
 
             // 按最后活跃时间排序
@@ -754,40 +825,47 @@ impl RecommendationEngine {
                     continue;
                 }
                 
-                let current_process_name = unsafe {
-                    let handle = windows::Win32::System::Threading::OpenProcess(
-                        windows::Win32::System::Threading::PROCESS_QUERY_INFORMATION | 
-                        windows::Win32::System::Threading::PROCESS_VM_READ,
-                        false,
-                        pid
-                    );
-                    
-                    match handle {
-                        Ok(h) => {
-                            let mut buffer = [0u16; 260];
-                            let mut size: u32 = 260;
-                            let result = windows::Win32::System::Threading::QueryFullProcessImageNameW(
-                                h,
-                                windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
-                                windows::core::PWSTR(buffer.as_mut_ptr()),
-                                &mut size
-                            );
-                            
-                            let _ = windows::Win32::Foundation::CloseHandle(h);
-                            
-                            if result.is_ok() {
-                                let path = String::from_utf16_lossy(&buffer[..size as usize]);
-                                std::path::Path::new(&path)
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or("unknown")
-                                    .to_string()
-                            } else {
-                                String::new()
+                // [ATT&CK 整改] 使用进程名缓存，避免重复 OpenProcess 调用
+                let current_process_name = if let Some(cached) = self.process_name_cache.get(&pid) {
+                    cached.clone()
+                } else {
+                    let name = unsafe {
+                        let handle = windows::Win32::System::Threading::OpenProcess(
+                            windows::Win32::System::Threading::PROCESS_QUERY_INFORMATION | 
+                            windows::Win32::System::Threading::PROCESS_VM_READ,
+                            false,
+                            pid
+                        );
+                        
+                        match handle {
+                            Ok(h) => {
+                                let mut buffer = [0u16; 260];
+                                let mut size: u32 = 260;
+                                let result = windows::Win32::System::Threading::QueryFullProcessImageNameW(
+                                    h,
+                                    windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
+                                    windows::core::PWSTR(buffer.as_mut_ptr()),
+                                    &mut size
+                                );
+                                
+                                let _ = windows::Win32::Foundation::CloseHandle(h);
+                                
+                                if result.is_ok() {
+                                    let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                                    std::path::Path::new(&path)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("unknown")
+                                        .to_string()
+                                } else {
+                                    String::new()
+                                }
                             }
+                            Err(_) => String::new()
                         }
-                        Err(_) => String::new()
-                    }
+                    };
+                    self.process_name_cache.insert(pid, name.clone());
+                    name
                 };
                 
                 if current_process_name != record.process_name {
@@ -823,7 +901,7 @@ impl RecommendationEngine {
 
         for ((app1, app2), count) in &self.co_occurrence {
             // 检查忽略清单
-            if ignore_set.contains(app1.as_str()) || ignore_set.contains(app2.as_str()) {
+            if ignore_set.contains(app1) || ignore_set.contains(app2) {
                 continue;
             }
 
@@ -864,8 +942,221 @@ impl RecommendationEngine {
         groups
     }
 
+    /// [T3] 基于 Apriori 频繁项集 + PrefixSpan 序列模式生成"高频工作流"推荐组（additive）
+    fn generate_workflow_group(
+        &self,
+        current_window: &WindowFocusEvent,
+        ignore_set: &HashSet<String>,
+        max_count: usize,
+    ) -> Option<RecommendationGroupInfo> {
+        let transactions = self.build_session_transactions();
+        if transactions.len() < 2 {
+            return None;
+        }
+        let itemsets = algorithms::apriori(&transactions, 2);
+        let current_process = &current_window.process_name;
+
+        // 选取包含当前应用、长度>=2 且不含忽略项的最高支持度项集
+        let best = itemsets.into_iter().find(|s| {
+            s.items.len() >= 2
+                && s.items.contains(current_process)
+                && s.items.iter().all(|it| !ignore_set.contains(it))
+        })?;
+
+        // PrefixSpan：按"紧随当前应用出现的可能性"对项集内应用排序
+        let sequences = self.build_switch_sequences();
+        let patterns = algorithms::prefixspan(&sequences, 2, 3);
+        let predicted = algorithms::predict_next(&patterns, current_process);
+        let rank_of = |app: &str| -> usize {
+            predicted.iter().position(|(a, _)| a == app).unwrap_or(usize::MAX)
+        };
+
+        let mut other_apps: Vec<String> = best
+            .items
+            .iter()
+            .filter(|a| a.as_str() != current_process.as_str())
+            .cloned()
+            .collect();
+        other_apps.sort_by_key(|a| rank_of(a));
+
+        let mut windows: Vec<RecommendationWindowInfo> = Vec::new();
+        let mut seen: HashSet<i64> = HashSet::new();
+        let dwell = self
+            .dwell_records
+            .get(&(current_window.hwnd.0, current_process.clone()))
+            .map(|r| r.dwell_secs)
+            .unwrap_or(0);
+        windows.push(RecommendationWindowInfo {
+            hwnd: current_window.hwnd,
+            process_name: current_process.clone(),
+            dwell_time_secs: dwell,
+        });
+        seen.insert(current_window.hwnd.0);
+
+        for app in other_apps {
+            if windows.len() >= max_count {
+                break;
+            }
+            if let Some(ev) = self
+                .events
+                .iter()
+                .rev()
+                .find(|e| e.process_name == app && !seen.contains(&e.hwnd.0))
+            {
+                seen.insert(ev.hwnd.0);
+                let d = self
+                    .dwell_records
+                    .get(&(ev.hwnd.0, ev.process_name.clone()))
+                    .map(|r| r.dwell_secs)
+                    .unwrap_or(0);
+                windows.push(RecommendationWindowInfo {
+                    hwnd: ev.hwnd,
+                    process_name: app,
+                    dwell_time_secs: d,
+                });
+            }
+        }
+
+        if windows.len() >= 2 {
+            Some(RecommendationGroupInfo {
+                windows,
+                label: format!("高频工作流 (共现 {} 次)", best.support),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// 按 30 分钟会话切分，构建 Apriori 事务（每个事务=会话内应用集合）
+    fn build_session_transactions(&self) -> Vec<Vec<String>> {
+        if self.ordered_events.is_empty() {
+            return Vec::new();
+        }
+        let mut sorted: Vec<&WindowFocusEvent> = self.ordered_events.iter().collect();
+        sorted.sort_by_key(|e| e.timestamp);
+        let gap = Duration::minutes(30);
+        let mut transactions: Vec<Vec<String>> = Vec::new();
+        let mut current_set: HashSet<String> = HashSet::new();
+        let mut session_start = sorted[0].timestamp;
+        for ev in &sorted {
+            if ev.timestamp - session_start > gap {
+                if current_set.len() >= 2 {
+                    transactions.push(current_set.iter().cloned().collect());
+                }
+                current_set.clear();
+                session_start = ev.timestamp;
+            }
+            current_set.insert(ev.process_name.clone());
+        }
+        if current_set.len() >= 2 {
+            transactions.push(current_set.into_iter().collect());
+        }
+        transactions
+    }
+
+    /// 按 30 分钟会话切分，构建 PrefixSpan 有序切换序列（合并连续相同应用）
+    fn build_switch_sequences(&self) -> Vec<Vec<String>> {
+        if self.ordered_events.is_empty() {
+            return Vec::new();
+        }
+        let mut sorted: Vec<&WindowFocusEvent> = self.ordered_events.iter().collect();
+        sorted.sort_by_key(|e| e.timestamp);
+        let gap = Duration::minutes(30);
+        let mut sequences: Vec<Vec<String>> = Vec::new();
+        let mut seq: Vec<String> = Vec::new();
+        let mut session_start = sorted[0].timestamp;
+        for ev in &sorted {
+            if ev.timestamp - session_start > gap {
+                if seq.len() >= 2 {
+                    sequences.push(std::mem::take(&mut seq));
+                } else {
+                    seq.clear();
+                }
+                session_start = ev.timestamp;
+            }
+            if seq.last().map(|l| l != &ev.process_name).unwrap_or(true) {
+                seq.push(ev.process_name.clone());
+            }
+        }
+        if seq.len() >= 2 {
+            sequences.push(seq);
+        }
+        sequences
+    }
+
     fn calculate_group_score(&self, co_occurring_apps: &[(String, u32)]) -> f32 {
         let total_count: u32 = co_occurring_apps.iter().map(|(_, c)| c).sum();
         (total_count as f32).ln() / 5.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{MonitorId, WindowFocusEvent, WindowHandle};
+    use chrono::TimeDelta;
+
+    fn ev(hwnd: i64, proc: &str, secs_ago: i64) -> WindowFocusEvent {
+        WindowFocusEvent {
+            hwnd: WindowHandle(hwnd),
+            pid: 1,
+            process_name: proc.to_string(),
+            window_title_hash: "h".to_string(),
+            timestamp: Utc::now() - TimeDelta::seconds(secs_ago),
+            monitor_id: MonitorId(0),
+        }
+    }
+
+    #[test]
+    fn test_co_occurrence_matrix() {
+        let mut engine = RecommendationEngine::new();
+        let events = vec![
+            ev(1, "code.exe", 300),
+            ev(2, "chrome.exe", 200),
+            ev(3, "terminal.exe", 100),
+        ];
+        engine.build_co_occurrence_matrix(&events);
+        // 3 个应用两两共现 => 3 对
+        assert_eq!(engine.co_occurrence.len(), 3);
+        let key = ("chrome.exe".to_string(), "code.exe".to_string());
+        assert_eq!(engine.co_occurrence.get(&key).copied().unwrap_or(0), 1);
+        // 时间衰减加权应为正
+        assert!(engine.co_occurrence_weight.get(&key).copied().unwrap_or(0.0) > 0.0);
+    }
+
+    #[test]
+    fn test_co_occurrence_empty() {
+        let mut engine = RecommendationEngine::new();
+        engine.build_co_occurrence_matrix(&[]);
+        assert!(engine.co_occurrence.is_empty());
+        assert!(engine.co_occurrence_weight.is_empty());
+    }
+
+    #[test]
+    fn test_dwell_times_switch_count() {
+        let mut engine = RecommendationEngine::new();
+        let events = vec![
+            ev(1, "a.exe", 500),
+            ev(2, "b.exe", 400),
+            ev(1, "a.exe", 300),
+            ev(2, "b.exe", 200),
+        ];
+        engine.calculate_dwell_times(&events);
+        let rec = engine.dwell_records.get(&(1, "a.exe".to_string()));
+        assert!(rec.is_some());
+        assert_eq!(rec.unwrap().switch_count, 2);
+    }
+
+    #[test]
+    fn test_workflow_transactions() {
+        let mut engine = RecommendationEngine::new();
+        engine.ordered_events = vec![
+            ev(1, "code.exe", 300),
+            ev(2, "chrome.exe", 200),
+            ev(3, "terminal.exe", 100),
+        ];
+        let tx = engine.build_session_transactions();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0].len(), 3);
     }
 }

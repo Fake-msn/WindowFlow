@@ -13,9 +13,60 @@ use windows::{
 
 pub struct WindowsPlatform;
 
+/// [T4] 窗口状态快照（位置 + 显示状态），用于迁移失败回滚
+#[derive(Debug, Clone)]
+pub struct WindowStateSnapshot {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+    pub show_cmd: u32,
+}
+
 impl WindowsPlatform {
     pub fn new() -> Self {
         Self
+    }
+
+    /// [T4] 捕获窗口当前放置状态（正常位置 + 显示命令），用于迁移失败回滚
+    pub fn capture_window_state(&self, hwnd: WindowHandle) -> std::result::Result<WindowStateSnapshot, PlatformError> {
+        let hwnd_win: HWND = hwnd.into();
+        unsafe {
+            let mut placement = WINDOWPLACEMENT {
+                length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                ..Default::default()
+            };
+            GetWindowPlacement(hwnd_win, &mut placement)
+                .map_err(|e| PlatformError::ApiError(e.to_string()))?;
+            Ok(WindowStateSnapshot {
+                left: placement.rcNormalPosition.left,
+                top: placement.rcNormalPosition.top,
+                right: placement.rcNormalPosition.right,
+                bottom: placement.rcNormalPosition.bottom,
+                show_cmd: placement.showCmd,
+            })
+        }
+    }
+
+    /// [T4] 将窗口恢复到快照记录的状态
+    pub fn restore_window_state(&self, hwnd: WindowHandle, snap: &WindowStateSnapshot) -> std::result::Result<(), PlatformError> {
+        let hwnd_win: HWND = hwnd.into();
+        unsafe {
+            let mut placement = WINDOWPLACEMENT {
+                length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                ..Default::default()
+            };
+            placement.showCmd = snap.show_cmd;
+            placement.rcNormalPosition = RECT {
+                left: snap.left,
+                top: snap.top,
+                right: snap.right,
+                bottom: snap.bottom,
+            };
+            SetWindowPlacement(hwnd_win, &placement)
+                .map_err(|e| PlatformError::ApiError(e.to_string()))?;
+            Ok(())
+        }
     }
 
     pub fn move_window(&self, hwnd: WindowHandle, target_monitor: MonitorId) -> std::result::Result<(), PlatformError> {
@@ -52,16 +103,14 @@ impl WindowsPlatform {
             let source_dpi = get_monitor_dpi(source_monitor)?;
             let target_dpi = get_monitor_dpi(target_monitor_win)?;
 
-            let scale = target_dpi as f32 / source_dpi as f32;
-
             let mut target_info = MONITORINFOEXW::default();
             target_info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
             if !GetMonitorInfoW(target_monitor_win, &mut target_info.monitorInfo).as_bool() {
                 return Err(PlatformError::ApiError("Failed to get monitor info".to_string()));
             }
 
-            let width = (((rect.right - rect.left) as f32) * scale) as i32;
-            let height = (((rect.bottom - rect.top) as f32) * scale) as i32;
+            let width = scale_by_dpi(rect.right - rect.left, source_dpi, target_dpi);
+            let height = scale_by_dpi(rect.bottom - rect.top, source_dpi, target_dpi);
 
             let work_width = target_info.monitorInfo.rcWork.right - target_info.monitorInfo.rcWork.left;
             let work_height = target_info.monitorInfo.rcWork.bottom - target_info.monitorInfo.rcWork.top;
@@ -707,7 +756,7 @@ extern "system" {
 /// Capture window thumbnail as base64 PNG using PrintWindow
 /// PrintWindow asks the target window to render itself into our DC,
 /// so it works even when the window is occluded by our own window.
-pub fn capture_window_thumbnail(hwnd: WindowHandle, max_width: u32, max_height: u32) -> std::result::Result<String, PlatformError> {
+pub fn capture_window_thumbnail_png_bytes(hwnd: WindowHandle, max_width: u32, max_height: u32) -> std::result::Result<Vec<u8>, PlatformError> {
     use windows::Win32::Graphics::Gdi::*;
 
     let hwnd_win: HWND = hwnd.into();
@@ -809,10 +858,16 @@ pub fn capture_window_thumbnail(hwnd: WindowHandle, max_width: u32, max_height: 
             return Err(PlatformError::ApiError("Failed to capture thumbnail".to_string()));
         }
 
-        use base64::Engine;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
-        Ok(format!("data:image/png;base64,{}", b64))
+        Ok(png_data)
     }
+}
+
+/// Capture window thumbnail as base64 PNG data URL (wraps the raw-bytes version)
+pub fn capture_window_thumbnail(hwnd: WindowHandle, max_width: u32, max_height: u32) -> std::result::Result<String, PlatformError> {
+    let png_data = capture_window_thumbnail_png_bytes(hwnd, max_width, max_height)?;
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
+    Ok(format!("data:image/png;base64,{}", b64))
 }
 
 /// Get current cursor position
@@ -823,5 +878,37 @@ pub fn get_cursor_position() -> std::result::Result<(i32, i32), PlatformError> {
         let mut point = POINT::default();
         GetCursorPos(&mut point).map_err(|e| PlatformError::ApiError(e.to_string()))?;
         Ok((point.x, point.y))
+    }
+}
+
+/// [T2/DPI] 按源/目标显示器 DPI 缩放尺寸（纯函数，便于单元测试）
+pub fn scale_by_dpi(value: i32, source_dpi: u32, target_dpi: u32) -> i32 {
+    if source_dpi == 0 {
+        return value;
+    }
+    ((value as f32) * (target_dpi as f32 / source_dpi as f32)) as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scale_by_dpi() {
+        // 96 -> 144 (150%): 800 变 1200
+        assert_eq!(scale_by_dpi(800, 96, 144), 1200);
+        // 同 DPI 不变
+        assert_eq!(scale_by_dpi(100, 96, 96), 100);
+        // 源 DPI 为 0 时防除零，原值返回
+        assert_eq!(scale_by_dpi(100, 0, 144), 100);
+        // 缩小：144 -> 96
+        assert_eq!(scale_by_dpi(150, 144, 96), 100);
+    }
+
+    #[test]
+    fn test_window_state_snapshot_fields() {
+        let snap = WindowStateSnapshot { left: 10, top: 20, right: 110, bottom: 220, show_cmd: 1 };
+        assert_eq!(snap.right - snap.left, 100);
+        assert_eq!(snap.bottom - snap.top, 200);
     }
 }

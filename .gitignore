@@ -8,6 +8,7 @@ frontend/dist/
 # IDE
 .idea/
 .vscode/
+.qoder/
 *.swp
 *.swo
 
