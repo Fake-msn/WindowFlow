@@ -447,7 +447,7 @@
   <div class="container">
     <div class="section-header">
       <h2 style="color:var(--light)">立即下载</h2>
-      <p>支持 Windows 10/11，提供安装版和便携版</p>
+      <p>支持 Windows 10/11，提供 MSI 安装版和便携版</p>
     </div>
     <div class="download-card">
       <div class="version-badge" id="version-badge">加载中...</div>
@@ -532,12 +532,14 @@
       versionBadge.textContent = releaseTag;
       versionText.textContent = releaseTag;
       if (release.assets?.length) {
-        releaseAssets = release.assets.map(a => ({
-          name: a.name,
-          label: a.name.endsWith('.msi') ? '下载安装版 (MSI)' : '下载便携版 (ZIP)',
-          size: (a.size / 1024 / 1024).toFixed(1) + ' MB',
-          type: a.name.endsWith('.msi') ? 'msi' : 'zip'
-        }));
+        releaseAssets = release.assets
+          .filter(a => !a.name.endsWith('-setup.exe'))
+          .map(a => ({
+            name: a.name,
+            label: a.name.endsWith('.msi') ? '下载安装版 (MSI)' : '下载便携版 (ZIP)',
+            size: (a.size / 1024 / 1024).toFixed(1) + ' MB',
+            type: a.name.endsWith('.msi') ? 'msi' : 'zip'
+          }));
       }
     }
   } catch (_) {
