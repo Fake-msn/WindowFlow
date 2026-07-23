@@ -5,7 +5,7 @@
 ![tech](https://img.shields.io/badge/Tauri-2.x-24C8DB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-<p align="right">
+<p align="left">
   <img src="Product_Definition.png" alt="WindowFlow Logo" width="280" />
 </p>
 
