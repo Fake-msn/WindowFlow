@@ -10,21 +10,36 @@ on:
     types: [published]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
-
 jobs:
+  # release 事件下 github.ref 为标签(refs/tags/*)，会被 github-pages 环境的
+  # 部署分支保护拒绝(默认仅允许默认分支)。因此 release 时不直接部署，而是在
+  # master 分支上重新触发本工作流；workflow_dispatch 是 GITHUB_TOKEN 可触发的
+  # 例外事件(始终创建新的工作流运行)，无需额外 PAT。
+  redispatch-on-release:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-trigger deploy on default branch (master)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy-pages.yml --ref master --repo "${{ github.repository }}"
+
   deploy:
+    # push / workflow_dispatch 均运行于 master(refs/heads/master)，可通过环境的分支保护
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
