@@ -13,8 +13,7 @@
 
 | 安装包 | 说明 |
 |--------|------|
-| `WindowFlow_1.2.0_x64-setup.exe` | NSIS 安装程序（推荐，体积更小） |
-| `WindowFlow_1.2.0_x64_en-US.msi` | MSI 安装程序（适合企业批量部署） |
+| `WindowFlow_1.2.0_x64_en-US.msi` | MSI 安装程序（推荐） |
 
 > 系统要求：Windows 10 / 11 (x64)，需 WebView2 运行时（Windows 11 已内置）。
 
@@ -92,7 +91,7 @@
 ### 运行时加固
 - 焦点监控采用事件钩子替代轮询，降低 CPU 占用
 - 进程名缓存减少系统调用频率
-- 提供 NSIS 与 MSI 两种签名友好的安装包格式
+- 提供 MSI 安装包格式
 
 ## 架构概览
 
@@ -136,7 +135,7 @@ cd frontend && npm install   # 安装前端依赖
 cd .. && cargo tauri dev     # 运行开发模式
 ```
 
-### 打包（生成 NSIS + MSI 安装包）
+### 打包（生成 MSI 安装包）
 
 ```bash
 cargo tauri build
