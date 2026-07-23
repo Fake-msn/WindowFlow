@@ -5,6 +5,10 @@
 ![tech](https://img.shields.io/badge/Tauri-2.x-24C8DB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+<div align="center">
+  <img src="Product_Definition.png" alt="WindowFlow Logo" width="320" />
+</div>
+
 智能桌面窗口管理工具 — 一键多屏幕窗口迁移、基于使用频率的智能推荐、本地工作流识别，数据全程本地加密存储。
 
 ## 下载安装
