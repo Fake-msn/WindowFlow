@@ -13,7 +13,7 @@
 
 ## 下载安装
 
-前往 [**Releases**](https://github.com/Fake-msn/WindowFlow/releases/latest) 或 [**下载页**](https://fake-msn.github.io/WindowFlow/) 获取最新版本：
+前往 [**发布通道**](https://github.com/Fake-msn/WindowFlow/releases/latest) 或 [**产品宣传页面**](https://fake-msn.github.io/WindowFlow/) 获取最新版本：
 
 | 安装包 | 说明 |
 |--------|------|
