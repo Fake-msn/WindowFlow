@@ -199,6 +199,10 @@ WindowFlow/
 - **Phase 2**：macOS —— 规划中
 - **Phase 3**：Linux（X11/Wayland）—— 规划中
 
+## 安全认证
+
+WindowFlow 安装包已通过 **360 软件开放平台** 云安全检测（软件 ID：5000364），NSIS 安装程序（`WindowFlow_1.2.0_x64-setup.exe`）经 360 云沙箱检测确认无恶意行为，可放心下载安装。
+
 ## 许可证
 
 MIT License
