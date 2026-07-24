@@ -447,7 +447,7 @@
   <div class="container">
     <div class="section-header">
       <h2 style="color:var(--light)">立即下载</h2>
-      <p>支持 Windows 10/11，提供 MSI 安装版</p>
+      <p>支持 Windows 10/11，提供 MSI 安装版和便携版</p>
     </div>
     <div class="download-card">
       <div class="version-badge" id="version-badge">加载中...</div>
@@ -497,7 +497,7 @@
 (async function() {
   // ====== Release Info (updated by GitHub Actions on release) ======
   const RELEASE_TAG = 'v1.0.0';
-  const RELEASE_ASSETS = [{"name":"WindowFlow_0.1.0_x64_en-US.msi","label":"下载安装版 (MSI)","size":"6.9 MB","type":"msi"}];
+  const RELEASE_ASSETS = [{"name":"WindowFlow_0.1.0_x64_en-US.msi","label":"下载安装版 (MSI)","size":"6.9 MB","type":"msi"},{"name":"WindowFlow-Portable-v1.0.0.zip","label":"下载便携版 (ZIP)","size":"6.5 MB","type":"zip"}];
   const RELEASE_DOWNLOAD_BASE = 'https://github.com/Fake-msn/WindowFlow/releases/download/' + RELEASE_TAG + '/';
 
   // ====== Mirror Proxies (verified working: 2026-07-14) ======
@@ -533,12 +533,12 @@
       versionText.textContent = releaseTag;
       if (release.assets?.length) {
         releaseAssets = release.assets
-          .filter(a => a.name.endsWith('.msi'))
+          .filter(a => !a.name.endsWith('-setup.exe'))
           .map(a => ({
             name: a.name,
-            label: '下载安装版 (MSI)',
+            label: a.name.endsWith('.msi') ? '下载安装版 (MSI)' : '下载便携版 (ZIP)',
             size: (a.size / 1024 / 1024).toFixed(1) + ' MB',
-            type: 'msi'
+            type: a.name.endsWith('.msi') ? 'msi' : 'zip'
           }));
       }
     }

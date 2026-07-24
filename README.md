@@ -6,7 +6,7 @@
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 <p align="left">
-  <img src="Product_Definition.png" alt="WindowFlow Logo" width="280" />
+  <img src="assets/Product_Definition.png" alt="WindowFlow Logo" width="280" />
 </p>
 
 这是一款基于场景感知的桌面窗口快速迁移工具，能够实现一键多屏幕窗口迁移、基于使用频率的智能推荐、本地工作流识别，数据全程本地加密存储。
@@ -17,7 +17,8 @@
 
 | 安装包 | 说明 |
 |--------|------|
-| `WindowFlow_1.2.0_x64_en-US.msi` | MSI 安装程序（推荐） |
+| `WindowFlow_1.2.0_x64-setup.exe` | NSIS 安装程序（推荐，体积更小） |
+| `WindowFlow_1.2.0_x64_en-US.msi` | MSI 安装程序（适合企业批量部署） |
 
 > 系统要求：Windows 10 / 11 (x64)，需 WebView2 运行时（Windows 11 已内置）。
 
@@ -95,7 +96,7 @@
 ### 运行时加固
 - 焦点监控采用事件钩子替代轮询，降低 CPU 占用
 - 进程名缓存减少系统调用频率
-- 提供 MSI 安装包格式
+- 提供 NSIS 与 MSI 两种签名友好的安装包格式
 
 ## 架构概览
 
@@ -139,7 +140,7 @@ cd frontend && npm install   # 安装前端依赖
 cd .. && cargo tauri dev     # 运行开发模式
 ```
 
-### 打包（生成 MSI 安装包）
+### 打包（生成 NSIS + MSI 安装包）
 
 ```bash
 cargo tauri build
